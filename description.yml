@@ -1,0 +1,71 @@
+extension:
+  name: eupe
+  description: EUPE (Efficient Universal Perception Encoder) vision embeddings in DuckDB via ONNX Runtime
+  version: 0.1.0
+  language: C++
+  build: cmake
+  license: MIT
+  maintainers:
+    - nkwork9999
+
+repo:
+  github: nkwork9999/eupe
+  ref: main
+
+docs:
+  hello_world: |
+    -- Load an ONNX model
+    SELECT eupe_load_model('/path/to/eupe_vit_s16.onnx', 'vit_s16');
+    -- Extract embeddings from images
+    SELECT eupe_embed('/path/to/image.jpg') AS embedding;
+  extended_description: |
+    DuckDB extension for Meta's EUPE (Efficient Universal Perception Encoder) -
+    lightweight vision transformer embeddings directly from SQL.
+
+    **Features:**
+    - Load EUPE ONNX models (ViT-T/S/B, ConvNeXt)
+    - Extract image embeddings from file paths or BLOBs
+    - Cosine similarity and L2 distance between embeddings
+    - Vector normalization and dimension queries
+    - Multiple model management (load/unload/list)
+    - ImageNet preprocessing (256x256, normalization) built-in
+    - Cross-platform (macOS, Linux, Windows)
+
+    **Supported EUPE Models:**
+    | Model | Parameters | Embed Dim |
+    |-------|-----------|-----------|
+    | ViT-T/16 | 6M | 192 |
+    | ViT-S/16 | 21M | 384 |
+    | ViT-B/16 | 86M | 768 |
+
+    **SQL Functions:**
+    - `eupe_load_model(path, name)` - Load ONNX model
+    - `eupe_embed(image_path)` - Get embedding vector
+    - `eupe_embed(image_path, model_name)` - Get embedding with specific model
+    - `eupe_embed_blob(blob)` - Get embedding from BLOB data
+    - `eupe_similarity(vec1, vec2)` - Cosine similarity
+    - `eupe_distance(vec1, vec2)` - L2 distance
+    - `eupe_normalize(vec)` - L2 normalize vector
+    - `eupe_dim(vec)` - Get vector dimension
+    - `eupe_list_models()` - List loaded models
+    - `eupe_unload_model(name)` - Unload model
+    - `eupe_version()` - Extension version
+
+    **Example: Image similarity search**
+    ```sql
+    SELECT eupe_load_model('eupe_vit_s16.onnx');
+
+    CREATE TABLE images AS
+    SELECT filename, eupe_embed(filepath) AS embedding
+    FROM glob('/data/images/*.jpg');
+
+    -- Find similar images
+    SELECT a.filename, b.filename,
+           eupe_similarity(a.embedding, b.embedding) AS similarity
+    FROM images a, images b
+    WHERE a.filename < b.filename
+    ORDER BY similarity DESC
+    LIMIT 10;
+    ```
+
+    Requires ONNX Runtime. Models must be exported to ONNX format first.

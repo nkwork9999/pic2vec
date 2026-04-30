@@ -1,0 +1,71 @@
+# name: test/sql/eupe.test
+# description: test eupe extension
+# group: [sql]
+
+# Before we load the extension, this will fail
+statement error
+SELECT eupe_version();
+----
+Catalog Error: Scalar Function with name eupe_version does not exist!
+
+# Require statement will ensure this test is run with this extension loaded
+require eupe
+
+# Confirm the extension works
+query I
+SELECT eupe_version();
+----
+EUPE Extension v0.1.0 (Efficient Universal Perception Encoder)
+
+# Test list models when none loaded
+query I
+SELECT eupe_list_models();
+----
+No models loaded. Use eupe_load_model() first.
+
+# Test vector operations with manual vectors
+query I
+SELECT eupe_similarity(
+    [1.0::FLOAT, 0.0::FLOAT, 0.0::FLOAT],
+    [1.0::FLOAT, 0.0::FLOAT, 0.0::FLOAT]
+);
+----
+1.0
+
+query I
+SELECT eupe_similarity(
+    [1.0::FLOAT, 0.0::FLOAT, 0.0::FLOAT],
+    [0.0::FLOAT, 1.0::FLOAT, 0.0::FLOAT]
+);
+----
+0.0
+
+# Test L2 distance
+query I
+SELECT round(eupe_distance(
+    [1.0::FLOAT, 0.0::FLOAT, 0.0::FLOAT],
+    [0.0::FLOAT, 1.0::FLOAT, 0.0::FLOAT]
+), 6);
+----
+1.414214
+
+# Test normalize
+query I
+SELECT eupe_dim(eupe_normalize([3.0::FLOAT, 4.0::FLOAT]));
+----
+2
+
+# Test dimension
+query I
+SELECT eupe_dim([1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT, 4.0::FLOAT]);
+----
+4
+
+# Test similarity with normalized vectors
+query I
+SELECT round(eupe_similarity(
+    eupe_normalize([1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT]),
+    eupe_normalize([1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT])
+), 6);
+----
+1.0

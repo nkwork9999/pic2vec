@@ -1,0 +1,8 @@
+build/
+.cache/
+*.o
+*.so
+*.dylib
+*.dll
+*.duckdb_extension
+.DS_Store
