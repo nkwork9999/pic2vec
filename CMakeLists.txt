@@ -8,42 +8,59 @@ project(${TARGET_NAME})
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# ONNX Runtime - locate Homebrew/system install (no CMake config provided by brew).
-# Override with -DONNXRUNTIME_ROOT=/path if installed elsewhere.
-if(NOT DEFINED ONNXRUNTIME_ROOT)
-    if(EXISTS "/opt/homebrew/include/onnxruntime/onnxruntime_cxx_api.h")
-        set(ONNXRUNTIME_ROOT "/opt/homebrew")
-    elseif(EXISTS "/usr/local/include/onnxruntime/onnxruntime_cxx_api.h")
-        set(ONNXRUNTIME_ROOT "/usr/local")
-    endif()
-endif()
+# ---------------------------------------------------------------------------
+# Rust core library (tract-onnx + image preprocessing) via Corrosion
+# ---------------------------------------------------------------------------
+include(FetchContent)
+FetchContent_Declare(
+    Corrosion
+    GIT_REPOSITORY https://github.com/corrosion-rs/corrosion.git
+    GIT_TAG v0.5.2
+)
+FetchContent_MakeAvailable(Corrosion)
 
-if(NOT ONNXRUNTIME_ROOT)
-    message(FATAL_ERROR "ONNX Runtime not found. Install via: brew install onnxruntime, or set -DONNXRUNTIME_ROOT=/path")
-endif()
+corrosion_import_crate(
+    MANIFEST_PATH "${CMAKE_CURRENT_SOURCE_DIR}/rust/Cargo.toml"
+    CRATES "pic2vec_core"
+    PROFILE release
+)
 
-set(ONNXRUNTIME_INCLUDE_DIR "${ONNXRUNTIME_ROOT}/include/onnxruntime")
-find_library(ONNXRUNTIME_LIB onnxruntime PATHS "${ONNXRUNTIME_ROOT}/lib" NO_DEFAULT_PATH REQUIRED)
-message(STATUS "Found ONNX Runtime headers: ${ONNXRUNTIME_INCLUDE_DIR}")
-message(STATUS "Found ONNX Runtime library: ${ONNXRUNTIME_LIB}")
-
+# ---------------------------------------------------------------------------
+# Extension sources (no ONNX Runtime, no stb_image - all moved to Rust)
+# ---------------------------------------------------------------------------
 set(EXTENSION_SOURCES
     src/pic2vec_extension.cpp
-    src/onnx_inference.cpp
-    src/image_utils.cpp
     src/embedded/tiny_model_data.cpp
 )
 
-include_directories(src/include ${ONNXRUNTIME_INCLUDE_DIR})
+include_directories(src/include)
 
 build_static_extension(${TARGET_NAME} ${EXTENSION_SOURCES})
 build_loadable_extension(${TARGET_NAME} " " ${EXTENSION_SOURCES})
 
-target_link_libraries(${EXTENSION_NAME} ${ONNXRUNTIME_LIB})
-target_link_libraries(${LOADABLE_EXTENSION_NAME} ${ONNXRUNTIME_LIB})
+# Link Rust static library into the extension.
+# DuckDB's build_*_extension uses plain target_link_libraries internally, so
+# we must too. $<BUILD_INTERFACE:...> stops Corrosion's IMPORTED target from
+# leaking into install(EXPORT "DuckDBExports") downstream.
+# Corrosion exposes a staticlib crate as `<name>-static` (the real archive
+# target) plus a top-level INTERFACE wrapper `<name>`. Linking the -static
+# target by file path keeps it out of install(EXPORT "DuckDBExports").
+if(TARGET pic2vec_core-static)
+    set(_PIC2VEC_RUST_TARGET pic2vec_core-static)
+else()
+    set(_PIC2VEC_RUST_TARGET pic2vec_core)
+endif()
 
-# ONNX Runtime headers and std::make_unique require C++17.
-# Override DuckDB's default C++11 setting for our targets only.
+add_dependencies(${EXTENSION_NAME} ${_PIC2VEC_RUST_TARGET})
+add_dependencies(${LOADABLE_EXTENSION_NAME} ${_PIC2VEC_RUST_TARGET})
+target_link_libraries(${EXTENSION_NAME} $<TARGET_FILE:${_PIC2VEC_RUST_TARGET}>)
+target_link_libraries(${LOADABLE_EXTENSION_NAME} $<TARGET_FILE:${_PIC2VEC_RUST_TARGET}>)
+
+if(APPLE)
+    target_link_libraries(${EXTENSION_NAME} "-framework CoreFoundation" "-framework Security")
+    target_link_libraries(${LOADABLE_EXTENSION_NAME} "-framework CoreFoundation" "-framework Security")
+endif()
+
 set_target_properties(${EXTENSION_NAME} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
 set_target_properties(${LOADABLE_EXTENSION_NAME} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
 target_compile_options(${EXTENSION_NAME} PRIVATE -std=c++17)

@@ -4,22 +4,22 @@
 
 # Before we load the extension, this will fail
 statement error
-SELECT pic2vec_version();
+SELECT pic_version();
 ----
-Catalog Error: Scalar Function with name pic2vec_version does not exist!
+Catalog Error: Scalar Function with name pic_version does not exist!
 
 # Require statement will ensure this test is run with this extension loaded
 require pic2vec
 
 # Confirm the extension works
 query I
-SELECT pic2vec_version();
+SELECT pic_version();
 ----
-pic2vec v0.1.0 - DuckDB vision embedding extension (bundles EUPE ViT-T)
+pic2vec v0.1.0 - DuckDB image embedding (tract-onnx, bundles EUPE ViT-T)
 
 # Test cosine similarity (identical vectors)
 query I
-SELECT pic2vec_similarity(
+SELECT pic_similarity(
     [1.0::FLOAT, 0.0::FLOAT, 0.0::FLOAT],
     [1.0::FLOAT, 0.0::FLOAT, 0.0::FLOAT]
 );
@@ -28,7 +28,7 @@ SELECT pic2vec_similarity(
 
 # Test cosine similarity (orthogonal vectors)
 query I
-SELECT pic2vec_similarity(
+SELECT pic_similarity(
     [1.0::FLOAT, 0.0::FLOAT, 0.0::FLOAT],
     [0.0::FLOAT, 1.0::FLOAT, 0.0::FLOAT]
 );
@@ -37,7 +37,7 @@ SELECT pic2vec_similarity(
 
 # Test L2 distance
 query I
-SELECT round(pic2vec_distance(
+SELECT round(pic_distance(
     [1.0::FLOAT, 0.0::FLOAT, 0.0::FLOAT],
     [0.0::FLOAT, 1.0::FLOAT, 0.0::FLOAT]
 ), 6);
@@ -46,7 +46,7 @@ SELECT round(pic2vec_distance(
 
 # Test inner product
 query I
-SELECT pic2vec_inner_product(
+SELECT pic_inner_product(
     [1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT],
     [4.0::FLOAT, 5.0::FLOAT, 6.0::FLOAT]
 );
@@ -55,7 +55,7 @@ SELECT pic2vec_inner_product(
 
 # Test inner product (orthogonal -> 0)
 query I
-SELECT pic2vec_inner_product(
+SELECT pic_inner_product(
     [1.0::FLOAT, 0.0::FLOAT],
     [0.0::FLOAT, 1.0::FLOAT]
 );
@@ -64,28 +64,28 @@ SELECT pic2vec_inner_product(
 
 # Test normalize preserves dimension
 query I
-SELECT pic2vec_dim(pic2vec_normalize([3.0::FLOAT, 4.0::FLOAT]));
+SELECT pic_dim(pic_normalize([3.0::FLOAT, 4.0::FLOAT]));
 ----
 2
 
 # Test normalize result has unit length
 query I
-SELECT round(pic2vec_inner_product(n, n), 6)
-FROM (SELECT pic2vec_normalize([3.0::FLOAT, 4.0::FLOAT]) AS n);
+SELECT round(pic_inner_product(n, n), 6)
+FROM (SELECT pic_normalize([3.0::FLOAT, 4.0::FLOAT]) AS n);
 ----
 1.0
 
 # Test dimension
 query I
-SELECT pic2vec_dim([1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT, 4.0::FLOAT]);
+SELECT pic_dim([1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT, 4.0::FLOAT]);
 ----
 4
 
 # Test similarity is symmetric
 query I
-SELECT round(pic2vec_similarity(
-    pic2vec_normalize([1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT]),
-    pic2vec_normalize([1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT])
+SELECT round(pic_similarity(
+    pic_normalize([1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT]),
+    pic_normalize([1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT])
 ), 6);
 ----
 1.0
@@ -98,10 +98,10 @@ SELECT round(pic2vec_similarity(
 
 # pic2vec_similarity ≈ array_cosine_similarity (DOUBLE vs FLOAT precision)
 query I
-SELECT abs(pic2vec_similarity(
+SELECT abs(pic_similarity(
     [1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT],
     [4.0::FLOAT, 5.0::FLOAT, 6.0::FLOAT]
-) - array_cosine_similarity(
+) - array_cosine_pic_similarity(
     [1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT]::FLOAT[3],
     [4.0::FLOAT, 5.0::FLOAT, 6.0::FLOAT]::FLOAT[3]
 )) < 0.0001;
@@ -110,10 +110,10 @@ SELECT abs(pic2vec_similarity(
 
 # pic2vec_distance ≈ array_distance
 query I
-SELECT abs(pic2vec_distance(
+SELECT abs(pic_distance(
     [1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT],
     [4.0::FLOAT, 6.0::FLOAT, 8.0::FLOAT]
-) - array_distance(
+) - array_pic_distance(
     [1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT]::FLOAT[3],
     [4.0::FLOAT, 6.0::FLOAT, 8.0::FLOAT]::FLOAT[3]
 )) < 0.0001;
@@ -122,10 +122,10 @@ SELECT abs(pic2vec_distance(
 
 # pic2vec_inner_product ≈ array_inner_product
 query I
-SELECT abs(pic2vec_inner_product(
+SELECT abs(pic_inner_product(
     [1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT],
     [4.0::FLOAT, 5.0::FLOAT, 6.0::FLOAT]
-) - array_inner_product(
+) - array_pic_inner_product(
     [1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT]::FLOAT[3],
     [4.0::FLOAT, 5.0::FLOAT, 6.0::FLOAT]::FLOAT[3]
 )) < 0.0001;
@@ -138,13 +138,13 @@ SELECT abs(pic2vec_inner_product(
 
 # CAST round-trip preserves values
 query I
-SELECT pic2vec_dim([1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT, 4.0::FLOAT]::FLOAT[4]::FLOAT[]);
+SELECT pic_dim([1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT, 4.0::FLOAT]::FLOAT[4]::FLOAT[]);
 ----
 4
 
 # Built-in array_cosine_similarity via CAST gives the expected value
 query I
-SELECT round(array_cosine_similarity(
+SELECT round(array_cosine_pic_similarity(
     [1.0::FLOAT, 0.0::FLOAT, 0.0::FLOAT]::FLOAT[3],
     [0.5::FLOAT, 0.5::FLOAT, 0.0::FLOAT]::FLOAT[3]
 ), 6);
@@ -155,8 +155,8 @@ SELECT round(array_cosine_similarity(
 # Mixed-dim models: keep LIST(FLOAT) — pic2vec_* handles any dim
 # ============================================
 query III
-SELECT pic2vec_dim([1.0::FLOAT, 2.0::FLOAT]) AS d2,
-       pic2vec_dim([1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT]) AS d3,
-       pic2vec_dim([1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT, 4.0::FLOAT]) AS d4;
+SELECT pic_dim([1.0::FLOAT, 2.0::FLOAT]) AS d2,
+       pic_dim([1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT]) AS d3,
+       pic_dim([1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT, 4.0::FLOAT]) AS d4;
 ----
 2	3	4

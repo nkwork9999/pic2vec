@@ -1,3 +1,4 @@
+
 extension:
   name: pic2vec
   description: Picture-to-vector — image embeddings from SQL via ONNX Runtime. Bundles Meta's EUPE ViT-T/16; works with any ONNX vision model.
@@ -10,7 +11,7 @@ extension:
 
 repo:
   github: nkwork9999/pic2vec
-  ref: main
+  ref: f61b0fb9cda1e76ab78a303aa43f2fbeebe385f0
 
 docs:
   hello_world: |
