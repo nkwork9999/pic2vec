@@ -1,0 +1,162 @@
+# name: test/sql/pic2vec.test
+# description: test pic2vec extension
+# group: [sql]
+
+# Before we load the extension, this will fail
+statement error
+SELECT pic2vec_version();
+----
+Catalog Error: Scalar Function with name pic2vec_version does not exist!
+
+# Require statement will ensure this test is run with this extension loaded
+require pic2vec
+
+# Confirm the extension works
+query I
+SELECT pic2vec_version();
+----
+pic2vec v0.1.0 - DuckDB vision embedding extension (bundles EUPE ViT-T)
+
+# Test cosine similarity (identical vectors)
+query I
+SELECT pic2vec_similarity(
+    [1.0::FLOAT, 0.0::FLOAT, 0.0::FLOAT],
+    [1.0::FLOAT, 0.0::FLOAT, 0.0::FLOAT]
+);
+----
+1.0
+
+# Test cosine similarity (orthogonal vectors)
+query I
+SELECT pic2vec_similarity(
+    [1.0::FLOAT, 0.0::FLOAT, 0.0::FLOAT],
+    [0.0::FLOAT, 1.0::FLOAT, 0.0::FLOAT]
+);
+----
+0.0
+
+# Test L2 distance
+query I
+SELECT round(pic2vec_distance(
+    [1.0::FLOAT, 0.0::FLOAT, 0.0::FLOAT],
+    [0.0::FLOAT, 1.0::FLOAT, 0.0::FLOAT]
+), 6);
+----
+1.414214
+
+# Test inner product
+query I
+SELECT pic2vec_inner_product(
+    [1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT],
+    [4.0::FLOAT, 5.0::FLOAT, 6.0::FLOAT]
+);
+----
+32.0
+
+# Test inner product (orthogonal -> 0)
+query I
+SELECT pic2vec_inner_product(
+    [1.0::FLOAT, 0.0::FLOAT],
+    [0.0::FLOAT, 1.0::FLOAT]
+);
+----
+0.0
+
+# Test normalize preserves dimension
+query I
+SELECT pic2vec_dim(pic2vec_normalize([3.0::FLOAT, 4.0::FLOAT]));
+----
+2
+
+# Test normalize result has unit length
+query I
+SELECT round(pic2vec_inner_product(n, n), 6)
+FROM (SELECT pic2vec_normalize([3.0::FLOAT, 4.0::FLOAT]) AS n);
+----
+1.0
+
+# Test dimension
+query I
+SELECT pic2vec_dim([1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT, 4.0::FLOAT]);
+----
+4
+
+# Test similarity is symmetric
+query I
+SELECT round(pic2vec_similarity(
+    pic2vec_normalize([1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT]),
+    pic2vec_normalize([1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT])
+), 6);
+----
+1.0
+
+# ============================================
+# Equivalence with DuckDB built-in array_* functions
+# pic2vec keeps these duplicates so no CAST is needed for ad-hoc work,
+# but the numeric results must match the built-ins on identical input.
+# ============================================
+
+# pic2vec_similarity ≈ array_cosine_similarity (DOUBLE vs FLOAT precision)
+query I
+SELECT abs(pic2vec_similarity(
+    [1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT],
+    [4.0::FLOAT, 5.0::FLOAT, 6.0::FLOAT]
+) - array_cosine_similarity(
+    [1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT]::FLOAT[3],
+    [4.0::FLOAT, 5.0::FLOAT, 6.0::FLOAT]::FLOAT[3]
+)) < 0.0001;
+----
+1
+
+# pic2vec_distance ≈ array_distance
+query I
+SELECT abs(pic2vec_distance(
+    [1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT],
+    [4.0::FLOAT, 6.0::FLOAT, 8.0::FLOAT]
+) - array_distance(
+    [1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT]::FLOAT[3],
+    [4.0::FLOAT, 6.0::FLOAT, 8.0::FLOAT]::FLOAT[3]
+)) < 0.0001;
+----
+1
+
+# pic2vec_inner_product ≈ array_inner_product
+query I
+SELECT abs(pic2vec_inner_product(
+    [1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT],
+    [4.0::FLOAT, 5.0::FLOAT, 6.0::FLOAT]
+) - array_inner_product(
+    [1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT]::FLOAT[3],
+    [4.0::FLOAT, 5.0::FLOAT, 6.0::FLOAT]::FLOAT[3]
+)) < 0.0001;
+----
+1
+
+# ============================================
+# CAST interop: LIST(FLOAT) -> FLOAT[N] for use with vss / array_*
+# ============================================
+
+# CAST round-trip preserves values
+query I
+SELECT pic2vec_dim([1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT, 4.0::FLOAT]::FLOAT[4]::FLOAT[]);
+----
+4
+
+# Built-in array_cosine_similarity via CAST gives the expected value
+query I
+SELECT round(array_cosine_similarity(
+    [1.0::FLOAT, 0.0::FLOAT, 0.0::FLOAT]::FLOAT[3],
+    [0.5::FLOAT, 0.5::FLOAT, 0.0::FLOAT]::FLOAT[3]
+), 6);
+----
+0.707107
+
+# ============================================
+# Mixed-dim models: keep LIST(FLOAT) — pic2vec_* handles any dim
+# ============================================
+query III
+SELECT pic2vec_dim([1.0::FLOAT, 2.0::FLOAT]) AS d2,
+       pic2vec_dim([1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT]) AS d3,
+       pic2vec_dim([1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT, 4.0::FLOAT]) AS d4;
+----
+2	3	4

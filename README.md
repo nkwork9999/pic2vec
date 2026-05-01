@@ -1,180 +1,182 @@
-# EUPE - DuckDB Extension
+# pic2vec - DuckDB Image Embedding Extension
 
-EUPE (Efficient Universal Perception Encoder) vision embeddings in DuckDB via ONNX Runtime.
+`pic2vec` turns images into vectors directly from SQL. Built on ONNX Runtime,
+bundled with Meta's **EUPE ViT-T/16** by default, works with any ONNX vision
+model that takes NCHW input `[N, 3, H, W]`.
 
-Extract image embeddings, compute similarity, and build visual search — all from SQL.
+```sql
+LOAD pic2vec;
+SELECT pic2vec_embed('/photo.jpg');     -- → FLOAT[192] embedding (zero setup)
+```
 
 ## Quick Start
 
-Three ways to get a model, in order of convenience:
-
-### 1. Zero-setup (bundled tiny model)
-
-If the extension was built with the ViT-T/16 model bundled in, just start calling
-`eupe_embed()` — the bundled model auto-loads on first use:
+### 1. Zero-setup (bundled EUPE ViT-T)
 
 ```sql
-LOAD eupe;
-SELECT eupe_embed('/path/to/photo.jpg');  -- auto-loads bundled tiny model
+LOAD pic2vec;
+SELECT pic2vec_embed('/path/to/photo.jpg');  -- bundled model auto-loads
+SELECT pic2vec_bundled_info();               -- check what's bundled
 ```
 
-Check whether a model was bundled:
+### 2. Load an arbitrary ONNX model
 
 ```sql
-SELECT eupe_bundled_info();
+SELECT pic2vec_load_model('/path/to/my_model.onnx', 'my_model');
+SELECT pic2vec_embed('/path/to/photo.jpg', 'my_model');
 ```
 
-### 2. Download a larger model (whisper-style)
+### 3. Download a known model (whisper-style)
 
 ```sql
-LOAD eupe;
-SELECT eupe_download_model('vit_s16');   -- cached in ~/.duckdb/extensions/eupe/models/
-SELECT eupe_embed('/path/to/photo.jpg', 'vit_s16');
-```
-
-Known models: `vit_t16`, `vit_s16`, `vit_b16`, `convnext_t`, `convnext_s`, `convnext_b`.
-
-### 3. Load a local ONNX file
-
-```sql
-SELECT eupe_load_model('/path/to/my_eupe.onnx', 'my_model');
-SELECT eupe_embed('/path/to/photo.jpg', 'my_model');
-```
-
-### Compute similarity
-
-```sql
-SELECT eupe_similarity(
-    eupe_embed('image_a.jpg'),
-    eupe_embed('image_b.jpg')
-) AS similarity;
+SELECT pic2vec_download_model('vit_s16');   -- → ~/.duckdb/extensions/pic2vec/models/
+SELECT pic2vec_embed('/path/to/photo.jpg', 'vit_s16');
 ```
 
 ## Functions
 
 | Function | Description | Returns |
 |----------|-------------|---------|
-| `eupe_version()` | Extension version | VARCHAR |
-| `eupe_bundled_info()` | Info about bundled tiny model (if any) | VARCHAR |
-| `eupe_load_bundled()` | Explicitly load the bundled tiny model | VARCHAR |
-| `eupe_download_model(name)` | Download known model to cache and load | VARCHAR |
-| `eupe_load_model(path)` | Load ONNX model (name from filename) | VARCHAR |
-| `eupe_load_model(path, name)` | Load ONNX model with name | VARCHAR |
-| `eupe_unload_model(name)` | Unload model | VARCHAR |
-| `eupe_list_models()` | List loaded models | VARCHAR |
-| `eupe_embed(image_path)` | Extract embedding (default model, auto-loads bundled tiny) | LIST(FLOAT) |
-| `eupe_embed(image_path, model)` | Extract embedding (named model) | LIST(FLOAT) |
-| `eupe_embed_blob(blob)` | Extract embedding from BLOB | LIST(FLOAT) |
-| `eupe_similarity(v1, v2)` | Cosine similarity | DOUBLE |
-| `eupe_distance(v1, v2)` | L2 distance | DOUBLE |
-| `eupe_normalize(vec)` | L2 normalize | LIST(FLOAT) |
-| `eupe_dim(vec)` | Vector dimension | INTEGER |
+| `pic2vec_version()` | Extension version | VARCHAR |
+| `pic2vec_bundled_info()` | Info about bundled model | VARCHAR |
+| `pic2vec_load_bundled()` | Explicitly load bundled model | VARCHAR |
+| `pic2vec_load_model(path[, name])` | Load ONNX model | VARCHAR |
+| `pic2vec_download_model(name)` | Download known model + load | VARCHAR |
+| `pic2vec_unload_model(name)` | Unload model | VARCHAR |
+| `pic2vec_list_models()` | List loaded models | VARCHAR |
+| `pic2vec_embed(image_path[, model])` | Image → embedding | LIST(FLOAT) |
+| `pic2vec_embed_blob(blob)` | BLOB → embedding | LIST(FLOAT) |
+| `pic2vec_similarity(v1, v2)` | Cosine similarity | DOUBLE |
+| `pic2vec_distance(v1, v2)` | L2 distance | DOUBLE |
+| `pic2vec_inner_product(v1, v2)` | Dot product | DOUBLE |
+| `pic2vec_normalize(vec)` | L2 normalize | LIST(FLOAT) |
+| `pic2vec_dim(vec)` | Vector dimension | INTEGER |
 
-### Model cache location
+## When to use which: pic2vec vs built-in / vss
 
-Downloaded models are cached at `~/.duckdb/extensions/eupe/models/<name>.onnx`.
-Override with the `EUPE_MODEL_DIR` environment variable.
+DuckDB already provides `array_cosine_similarity`, `array_distance`, and
+`array_inner_product` for fixed-size `FLOAT[N]` arrays, plus the `vss`
+extension for HNSW indexes. pic2vec deliberately keeps duplicate scalar
+functions (`pic2vec_similarity`, etc.) so workflows that don't need HNSW
+don't have to set up the `vss` extension or worry about dim-typed columns.
 
-## EUPE Models
+| Need | Recommended | Why |
+|------|-------------|-----|
+| Ad-hoc / one-shot similarity | **pic2vec_*** | No CAST, no schema, takes `LIST(FLOAT)` directly |
+| Mixed-model embeddings in one query (192 + 384) | **pic2vec_*** | `LIST(FLOAT)` carries any dim; `FLOAT[N]` would force separate columns |
+| Persisted table, ≤ 100k rows, full scan | Either | Both produce identical results |
+| Persisted table, >> 100k rows, fast NN search | **`vss` + HNSW** | Built-in `array_cosine_distance` + index |
+| Want to mix with Postgres-style array functions | **built-in `array_*`** | Works on `FLOAT[N]` natively |
 
-| Model | Params | Embed Dim |
-|-------|--------|-----------|
-| ViT-T/16 | 6M | 192 |
-| ViT-S/16 | 21M | 384 |
-| ViT-B/16 | 86M | 768 |
-| ConvNeXt-T | 29M | varies |
-| ConvNeXt-S | 50M | varies |
-| ConvNeXt-B | 89M | varies |
+## Composing with DuckDB built-ins
 
-## Use Cases
+`pic2vec_embed()` returns `LIST(FLOAT)` — flexible (handles mixed model dims),
+but DuckDB's built-in array distance functions and the HNSW index in `vss`
+require fixed-size `FLOAT[N]`. Use a CAST to bridge them.
 
-### Image Similarity Search
+### Pattern A: Standalone (small datasets, ad-hoc queries)
+
+Use pic2vec's own scalar functions. No CAST, no extension setup needed.
+
 ```sql
-SELECT eupe_load_model('eupe_vit_s16.onnx');
+SELECT a, b, pic2vec_similarity(pic2vec_embed(a), pic2vec_embed(b)) AS sim
+FROM (VALUES ('a.jpg', 'b.jpg'), ('c.jpg', 'd.jpg')) t(a, b);
+```
 
-CREATE TABLE image_embeddings AS
-SELECT filename, eupe_embed(filepath) AS vec
+### Pattern B: HNSW + vss (large datasets, fast NN search)
+
+CAST the embedding to `FLOAT[N]` to enable HNSW indexing.
+
+```sql
+INSTALL vss; LOAD vss;
+
+CREATE TABLE imgs (filename VARCHAR, vec FLOAT[192]);
+INSERT INTO imgs
+SELECT filename, pic2vec_embed(filename)::FLOAT[192]
 FROM glob('/data/images/*.jpg');
 
--- Find most similar pairs
-SELECT a.filename AS img_a, b.filename AS img_b,
-       eupe_similarity(a.vec, b.vec) AS sim
-FROM image_embeddings a, image_embeddings b
-WHERE a.filename < b.filename
-ORDER BY sim DESC LIMIT 10;
+CREATE INDEX vec_idx ON imgs USING HNSW (vec) WITH (metric = 'cosine');
+
+-- Top-10 nearest to a query image
+SELECT filename
+FROM imgs
+ORDER BY array_cosine_distance(vec, pic2vec_embed('/query.jpg')::FLOAT[192])
+LIMIT 10;
 ```
 
-### Batch Embedding Extraction
+### Pattern C: Mixed-dim models (multiple models in one query)
+
+Keep `LIST(FLOAT)` for flexibility — different models have different dims.
+
 ```sql
+SELECT pic2vec_load_model('/eupe_vit_t.onnx', 'tiny');
+SELECT pic2vec_load_model('/eupe_vit_s.onnx', 'small');
+
+CREATE TABLE imgs AS
 SELECT filename,
-       eupe_embed(filepath) AS embedding,
-       eupe_dim(eupe_embed(filepath)) AS dim
-FROM glob('/data/photos/*.png');
+       pic2vec_embed(filename, 'tiny')  AS vec_192,
+       pic2vec_embed(filename, 'small') AS vec_384
+FROM glob('/data/images/*.jpg');
+
+-- Both columns use LIST(FLOAT); pic2vec_similarity handles either
+SELECT pic2vec_similarity(a.vec_192, b.vec_192) AS sim_tiny,
+       pic2vec_similarity(a.vec_384, b.vec_384) AS sim_small
+FROM imgs a, imgs b WHERE a.filename < b.filename;
 ```
 
-### Multi-Model Comparison
-```sql
-SELECT eupe_load_model('eupe_vit_t16.onnx', 'tiny');
-SELECT eupe_load_model('eupe_vit_s16.onnx', 'small');
+## Compatible models
 
-SELECT filename,
-       eupe_embed(filepath, 'tiny') AS embed_tiny,
-       eupe_embed(filepath, 'small') AS embed_small
-FROM images;
-```
+Any ONNX vision model with NCHW input `[N, 3, H, W]` and a single embedding output:
+
+- **EUPE** (ViT-T/S/B, ConvNeXt-T/S/B) — Meta
+- **DINOv2 / DINOv3** — Meta
+- **CLIP image encoder** — OpenAI
+- **MobileNet, ResNet, EfficientNet, Swin, ConvNeXt** — torchvision/HuggingFace
+- ImageNet normalization (mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) is
+  applied internally
+- Input H/W is read from ONNX metadata; preprocessing adapts
 
 ## Preparing ONNX Models
-
-Export EUPE models to ONNX format:
 
 ```python
 import torch
 
-model = torch.hub.load('path/to/EUPE', 'eupe_vits16', source='local',
-                        weights='path/to/checkpoint.pth')
+model = torch.hub.load(...)  # your model
 model.eval()
 
-dummy = torch.randn(1, 3, 256, 256)
-torch.onnx.export(model, dummy, 'eupe_vit_s16.onnx',
-                  input_names=['input'],
-                  output_names=['embedding'],
-                  dynamic_axes={'input': {0: 'batch'}})
+dummy = torch.randn(1, 3, 224, 224)  # adjust H/W to your model
+torch.onnx.export(model, dummy, 'model.onnx',
+                  input_names=['input'], output_names=['embedding'],
+                  opset_version=14,
+                  dynamic_axes={'input': {0: 'batch'}},
+                  dynamo=False)  # legacy exporter is more permissive
 ```
 
-## Embedding the tiny model into the extension binary
+## Embedding the bundled model into the extension binary
 
-For the "just works after install" experience, bundle the ViT-T/16 model
-directly into the extension binary. Export it (ideally FP16 for a ~12MB footprint),
-then run:
+The extension repo ships a stub for the bundled tiny model. To produce a build
+where `pic2vec_embed()` works zero-setup, run:
 
 ```bash
-./scripts/embed_tiny_model.sh path/to/eupe_vit_t16_fp16.onnx
+./scripts/embed_tiny_model.sh path/to/eupe_vit_t.onnx
 make release
 ```
 
-This regenerates `src/embedded/tiny_model_data.cpp` with the model bytes as a
-C++ byte array. After rebuild, `eupe_embed()` works with no setup — the bundled
-model is auto-loaded on first use. Without running the script, the stub remains
-in place and users must load or download a model explicitly.
+This regenerates `src/embedded/tiny_model_data.cpp` with the model bytes.
 
 ## Building
 
 ```bash
-# Setup submodules
 git submodule update --init --recursive
-
-# Build
+brew install onnxruntime    # or apt install / vcpkg
 make release
-
-# Test
-make test
 ```
 
 ## Dependencies
 
-- DuckDB (via submodule)
-- ONNX Runtime (via vcpkg)
-- stb_image.h (place in `src/include/` for PNG/JPEG support)
+- DuckDB (via submodule, pinned to v1.4.1)
+- ONNX Runtime (Homebrew/apt/vcpkg)
+- stb_image.h in `src/include/` (for PNG/JPEG decoding)
 
 ## License
 

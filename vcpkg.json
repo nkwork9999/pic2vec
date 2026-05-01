@@ -1,7 +1,5 @@
 {
-        "dependencies": [
-                "onnxruntime-gpu"
-        ],
+        "dependencies": [],
         "vcpkg-configuration": {
                 "overlay-ports": [
                         "./extension-ci-tools/vcpkg_ports"

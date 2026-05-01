@@ -1,4 +1,4 @@
-#include "eupe_extension.hpp"
+#include "pic2vec_extension.hpp"
 
 #include <algorithm>
 #include <cmath>

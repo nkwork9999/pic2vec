@@ -1,6 +1,6 @@
 extension:
-  name: eupe
-  description: EUPE (Efficient Universal Perception Encoder) vision embeddings in DuckDB via ONNX Runtime
+  name: pic2vec
+  description: Picture-to-vector — image embeddings from SQL via ONNX Runtime. Bundles Meta's EUPE ViT-T/16; works with any ONNX vision model.
   version: 0.1.0
   language: C++
   build: cmake
@@ -9,29 +9,37 @@ extension:
     - nkwork9999
 
 repo:
-  github: nkwork9999/eupe
+  github: nkwork9999/pic2vec
   ref: main
 
 docs:
   hello_world: |
-    -- Load an ONNX model
-    SELECT eupe_load_model('/path/to/eupe_vit_s16.onnx', 'vit_s16');
-    -- Extract embeddings from images
-    SELECT eupe_embed('/path/to/image.jpg') AS embedding;
+    -- Bundled EUPE ViT-T auto-loads on first call - zero setup
+    SELECT pic2vec_embed('/path/to/image.jpg') AS embedding;
+
+    -- Or load any ONNX vision model explicitly
+    SELECT pic2vec_load_model('/path/to/model.onnx', 'my_model');
+    SELECT pic2vec_embed('/path/to/image.jpg', 'my_model');
   extended_description: |
-    DuckDB extension for Meta's EUPE (Efficient Universal Perception Encoder) -
-    lightweight vision transformer embeddings directly from SQL.
+    `pic2vec` is a vision-embedding extension for DuckDB built on ONNX Runtime.
+    It ships with Meta's EUPE ViT-T/16 (6M params) bundled into the extension binary
+    so the simplest workflow needs zero setup. Any ONNX vision model with NCHW input
+    `[N, 3, H, W]` and a single embedding output also works.
 
     **Features:**
-    - Load EUPE ONNX models (ViT-T/S/B, ConvNeXt)
-    - Extract image embeddings from file paths or BLOBs
-    - Cosine similarity and L2 distance between embeddings
-    - Vector normalization and dimension queries
-    - Multiple model management (load/unload/list)
-    - ImageNet preprocessing (256x256, normalization) built-in
+    - Bundled EUPE ViT-T/16 — auto-loads on first `pic2vec_embed()` call (no setup)
+    - Whisper-style download helper for larger models (`pic2vec_download_model`)
+    - Load arbitrary local ONNX vision models
+    - Cosine similarity, L2 distance, inner product (matches DuckDB built-ins)
+    - L2 normalization helper (not in DuckDB core)
+    - ImageNet preprocessing (resize + normalization) handled internally
     - Cross-platform (macOS, Linux, Windows)
 
-    **Supported EUPE Models:**
+    **Composes with built-in DuckDB:**
+    `pic2vec_embed` returns `LIST(FLOAT)`. CAST to `FLOAT[N]` for use with built-in
+    `array_cosine_similarity`, `array_distance`, and the `vss` extension's HNSW index.
+
+    **EUPE Model Sizes (when downloaded/used):**
     | Model | Parameters | Embed Dim |
     |-------|-----------|-----------|
     | ViT-T/16 | 6M | 192 |
@@ -39,33 +47,40 @@ docs:
     | ViT-B/16 | 86M | 768 |
 
     **SQL Functions:**
-    - `eupe_load_model(path, name)` - Load ONNX model
-    - `eupe_embed(image_path)` - Get embedding vector
-    - `eupe_embed(image_path, model_name)` - Get embedding with specific model
-    - `eupe_embed_blob(blob)` - Get embedding from BLOB data
-    - `eupe_similarity(vec1, vec2)` - Cosine similarity
-    - `eupe_distance(vec1, vec2)` - L2 distance
-    - `eupe_normalize(vec)` - L2 normalize vector
-    - `eupe_dim(vec)` - Get vector dimension
-    - `eupe_list_models()` - List loaded models
-    - `eupe_unload_model(name)` - Unload model
-    - `eupe_version()` - Extension version
+    - `pic2vec_load_model(path[, name])` - Load ONNX model
+    - `pic2vec_load_bundled()` - Explicitly load the bundled tiny model
+    - `pic2vec_download_model(name)` - Download a known model to local cache
+    - `pic2vec_embed(image_path[, model_name])` - Get embedding (auto-loads bundled)
+    - `pic2vec_embed_blob(blob)` - Get embedding from BLOB data
+    - `pic2vec_similarity(v1, v2)` - Cosine similarity
+    - `pic2vec_distance(v1, v2)` - L2 distance
+    - `pic2vec_inner_product(v1, v2)` - Dot product
+    - `pic2vec_normalize(vec)` - L2 normalize vector
+    - `pic2vec_dim(vec)` - Get vector dimension
+    - `pic2vec_list_models()`, `pic2vec_unload_model(name)`, `pic2vec_bundled_info()`
+    - `pic2vec_version()` - Extension version
 
-    **Example: Image similarity search**
+    **Example: Image similarity search (standalone)**
     ```sql
-    SELECT eupe_load_model('eupe_vit_s16.onnx');
-
-    CREATE TABLE images AS
-    SELECT filename, eupe_embed(filepath) AS embedding
+    CREATE TABLE imgs AS
+    SELECT filename, pic2vec_embed(filename) AS vec
     FROM glob('/data/images/*.jpg');
 
-    -- Find similar images
-    SELECT a.filename, b.filename,
-           eupe_similarity(a.embedding, b.embedding) AS similarity
-    FROM images a, images b
-    WHERE a.filename < b.filename
-    ORDER BY similarity DESC
-    LIMIT 10;
+    SELECT a.filename, b.filename, pic2vec_similarity(a.vec, b.vec) AS sim
+    FROM imgs a, imgs b WHERE a.filename < b.filename
+    ORDER BY sim DESC LIMIT 10;
     ```
 
-    Requires ONNX Runtime. Models must be exported to ONNX format first.
+    **Example: HNSW search via vss (large datasets)**
+    ```sql
+    INSTALL vss; LOAD vss;
+    CREATE TABLE imgs (filename VARCHAR, vec FLOAT[192]);
+    INSERT INTO imgs SELECT filename, pic2vec_embed(filename)::FLOAT[192]
+    FROM glob('/data/images/*.jpg');
+
+    CREATE INDEX vec_idx ON imgs USING HNSW (vec) WITH (metric = 'cosine');
+
+    SELECT filename FROM imgs
+    ORDER BY array_cosine_distance(vec, pic2vec_embed('/query.jpg')::FLOAT[192])
+    LIMIT 10;
+    ```

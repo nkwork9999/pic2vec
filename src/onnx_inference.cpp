@@ -1,4 +1,4 @@
-#include "eupe_extension.hpp"
+#include "pic2vec_extension.hpp"
 #include "embedded_model.hpp"
 
 #include <onnxruntime_cxx_api.h>
@@ -9,6 +9,7 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <numeric>
 #include <stdexcept>
 #include <sys/stat.h>
@@ -25,20 +26,20 @@
 namespace duckdb {
 
 // ============================================
-// EupeModelManager Singleton
+// Pic2VecModelManager Singleton
 // ============================================
 
-EupeModelManager &EupeModelManager::Instance() {
-	static EupeModelManager instance;
+Pic2VecModelManager &Pic2VecModelManager::Instance() {
+	static Pic2VecModelManager instance;
 	return instance;
 }
 
 // Shared post-load step: probe input/output shapes and register the model.
 // Assumes the caller already holds `mutex` and has constructed model->session.
-static std::string FinalizeLoadedModel(EupeModelManager &manager,
-                                       std::unordered_map<std::string, std::unique_ptr<EupeModel>> &models,
+static std::string FinalizeLoadedModel(Pic2VecModelManager &manager,
+                                       std::unordered_map<std::string, std::unique_ptr<Pic2VecModel>> &models,
                                        std::string &default_model_name,
-                                       std::unique_ptr<EupeModel> model,
+                                       std::unique_ptr<Pic2VecModel> model,
                                        const std::string &model_name,
                                        const std::string &source_label) {
 	// Probe output shape to determine embedding dimension
@@ -83,7 +84,7 @@ static Ort::SessionOptions MakeSessionOptions() {
 	return opts;
 }
 
-std::string EupeModelManager::LoadModel(const std::string &model_path, const std::string &model_name) {
+std::string Pic2VecModelManager::LoadModel(const std::string &model_path, const std::string &model_name) {
 	std::lock_guard<std::mutex> lock(mutex);
 
 	if (models.find(model_name) != models.end()) {
@@ -91,7 +92,7 @@ std::string EupeModelManager::LoadModel(const std::string &model_path, const std
 	}
 
 	try {
-		auto model = std::make_unique<EupeModel>();
+		auto model = std::make_unique<Pic2VecModel>();
 		model->model_path = model_path;
 		model->input_height = 256;
 		model->input_width = 256;
@@ -115,7 +116,7 @@ std::string EupeModelManager::LoadModel(const std::string &model_path, const std
 	}
 }
 
-std::string EupeModelManager::LoadModelFromMemory(const uint8_t *data, size_t size, const std::string &model_name) {
+std::string Pic2VecModelManager::LoadModelFromMemory(const uint8_t *data, size_t size, const std::string &model_name) {
 	std::lock_guard<std::mutex> lock(mutex);
 
 	if (models.find(model_name) != models.end()) {
@@ -127,7 +128,7 @@ std::string EupeModelManager::LoadModelFromMemory(const uint8_t *data, size_t si
 	}
 
 	try {
-		auto model = std::make_unique<EupeModel>();
+		auto model = std::make_unique<Pic2VecModel>();
 		model->model_path = "<embedded>";
 		model->input_height = 256;
 		model->input_width = 256;
@@ -147,16 +148,16 @@ std::string EupeModelManager::LoadModelFromMemory(const uint8_t *data, size_t si
 	}
 }
 
-std::string EupeModelManager::LoadBundledTiny() {
+std::string Pic2VecModelManager::LoadBundledTiny() {
 	if (EUPE_TINY_MODEL_SIZE == 0) {
 		return "Bundled tiny model is not embedded in this build. "
 		       "Run scripts/embed_tiny_model.sh <onnx> and rebuild, "
-		       "or use eupe_download_model('vit_t16').";
+		       "or use pic2vec_download_model('vit_t16').";
 	}
 	return LoadModelFromMemory(EUPE_TINY_MODEL_DATA, EUPE_TINY_MODEL_SIZE, EUPE_TINY_MODEL_NAME);
 }
 
-EupeModel *EupeModelManager::EnsureDefaultModel() {
+Pic2VecModel *Pic2VecModelManager::EnsureDefaultModel() {
 	{
 		std::lock_guard<std::mutex> lock(mutex);
 		if (!default_model_name.empty()) {
@@ -178,7 +179,7 @@ EupeModel *EupeModelManager::EnsureDefaultModel() {
 	return nullptr;
 }
 
-EupeModel *EupeModelManager::GetModel(const std::string &model_name) {
+Pic2VecModel *Pic2VecModelManager::GetModel(const std::string &model_name) {
 	std::lock_guard<std::mutex> lock(mutex);
 	auto it = models.find(model_name);
 	if (it != models.end()) {
@@ -187,7 +188,7 @@ EupeModel *EupeModelManager::GetModel(const std::string &model_name) {
 	return nullptr;
 }
 
-EupeModel *EupeModelManager::GetDefaultModel() {
+Pic2VecModel *Pic2VecModelManager::GetDefaultModel() {
 	std::lock_guard<std::mutex> lock(mutex);
 	if (default_model_name.empty()) {
 		return nullptr;
@@ -199,7 +200,7 @@ EupeModel *EupeModelManager::GetDefaultModel() {
 	return nullptr;
 }
 
-std::vector<std::string> EupeModelManager::ListModels() {
+std::vector<std::string> Pic2VecModelManager::ListModels() {
 	std::lock_guard<std::mutex> lock(mutex);
 	std::vector<std::string> names;
 	names.reserve(models.size());
@@ -209,7 +210,7 @@ std::vector<std::string> EupeModelManager::ListModels() {
 	return names;
 }
 
-bool EupeModelManager::UnloadModel(const std::string &model_name) {
+bool Pic2VecModelManager::UnloadModel(const std::string &model_name) {
 	std::lock_guard<std::mutex> lock(mutex);
 	auto it = models.find(model_name);
 	if (it == models.end()) {
@@ -226,7 +227,7 @@ bool EupeModelManager::UnloadModel(const std::string &model_name) {
 // ONNX Inference
 // ============================================
 
-std::vector<float> RunInference(EupeModel &model, const ImageData &image) {
+std::vector<float> RunInference(Pic2VecModel &model, const ImageData &image) {
 	if (!model.session) {
 		throw std::runtime_error("Model session is not initialized");
 	}
@@ -319,6 +320,17 @@ double L2Distance(const std::vector<float> &a, const std::vector<float> &b) {
 	return std::sqrt(sum);
 }
 
+double InnerProduct(const std::vector<float> &a, const std::vector<float> &b) {
+	if (a.size() != b.size() || a.empty()) {
+		return 0.0;
+	}
+	double dot = 0.0;
+	for (size_t i = 0; i < a.size(); i++) {
+		dot += (double)a[i] * b[i];
+	}
+	return dot;
+}
+
 // ============================================
 // Model download (whisper-style)
 // ============================================
@@ -377,12 +389,12 @@ static std::string HomeDir() {
 }
 
 std::string ResolveModelCachePath(const std::string &model_name) {
-	const char *override_dir = std::getenv("EUPE_MODEL_DIR");
+	const char *override_dir = std::getenv("PIC2VEC_MODEL_DIR");
 	std::string dir;
 	if (override_dir && *override_dir) {
 		dir = override_dir;
 	} else {
-		dir = HomeDir() + "/.duckdb/extensions/eupe/models";
+		dir = HomeDir() + "/.duckdb/extensions/pic2vec/models";
 	}
 	EnsureDir(dir);
 	return dir + "/" + model_name + ".onnx";
