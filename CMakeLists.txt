@@ -27,10 +27,28 @@ corrosion_import_crate(
 
 # ---------------------------------------------------------------------------
 # Extension sources (no ONNX Runtime, no stb_image - all moved to Rust)
+#
+# tiny_model_data.cpp holds the bundled EUPE ViT-T ONNX bytes (~22MB raw,
+# ~131MB as C++ array). It is .gitignored — too large to commit. CI/CD and
+# fresh checkouts get an auto-generated stub here (size=0, model not bundled);
+# users who want the zero-setup bundled model run scripts/embed_tiny_model.sh
+# to overwrite tiny_model_data.cpp with the real bytes.
 # ---------------------------------------------------------------------------
+set(_PIC2VEC_TINY_DATA "${CMAKE_CURRENT_SOURCE_DIR}/src/embedded/tiny_model_data.cpp")
+if(NOT EXISTS "${_PIC2VEC_TINY_DATA}")
+    set(_PIC2VEC_TINY_DATA "${CMAKE_CURRENT_BINARY_DIR}/tiny_model_data_stub.cpp")
+    if(NOT EXISTS "${_PIC2VEC_TINY_DATA}")
+        file(WRITE "${_PIC2VEC_TINY_DATA}"
+"// Auto-generated stub. Run scripts/embed_tiny_model.sh <onnx> to embed a real model.\n#include \"embedded_model.hpp\"\nnamespace duckdb {\nconst uint8_t EUPE_TINY_MODEL_DATA[1] = {0};\nconst size_t EUPE_TINY_MODEL_SIZE = 0;\n} // namespace duckdb\n")
+    endif()
+    message(STATUS "pic2vec: bundled tiny model not present; generated stub at ${_PIC2VEC_TINY_DATA}")
+else()
+    message(STATUS "pic2vec: using bundled tiny model from ${_PIC2VEC_TINY_DATA}")
+endif()
+
 set(EXTENSION_SOURCES
     src/pic2vec_extension.cpp
-    src/embedded/tiny_model_data.cpp
+    "${_PIC2VEC_TINY_DATA}"
 )
 
 include_directories(src/include)
