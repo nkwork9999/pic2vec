@@ -79,6 +79,13 @@ if(APPLE)
     target_link_libraries(${LOADABLE_EXTENSION_NAME} "-framework CoreFoundation" "-framework Security")
 endif()
 
+# Rust std on Windows pulls in NT-level APIs (NtReadFile/NtWriteFile) that
+# live in ntdll.lib; userenv.lib is needed by std::env::home_dir.
+if(WIN32)
+    target_link_libraries(${EXTENSION_NAME} ntdll userenv)
+    target_link_libraries(${LOADABLE_EXTENSION_NAME} ntdll userenv)
+endif()
+
 # Force C++17 (DuckDB defaults to C++11; std::bitset, std::sqrt overloads,
 # iomanip etc. need C++17). CXX_STANDARD maps to the right per-compiler flag
 # automatically (no explicit -std=c++17 needed; that style trips MSVC).
