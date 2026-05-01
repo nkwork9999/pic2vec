@@ -79,11 +79,14 @@ if(APPLE)
     target_link_libraries(${LOADABLE_EXTENSION_NAME} "-framework CoreFoundation" "-framework Security")
 endif()
 
-# Rust std on Windows pulls in NT-level APIs (NtReadFile/NtWriteFile) that
-# live in ntdll.lib; userenv.lib is needed by std::env::home_dir.
+# Rust std on Windows pulls in OS-level libs that the MSVC link line bundles
+# automatically but MinGW/rtools doesn't:
+#   - ntdll: NtReadFile/NtWriteFile (std::fs)
+#   - userenv: std::env::home_dir
+#   - bcrypt: BCryptGenRandom (getrandom crate, used transitively by tract)
 if(WIN32)
-    target_link_libraries(${EXTENSION_NAME} ntdll userenv)
-    target_link_libraries(${LOADABLE_EXTENSION_NAME} ntdll userenv)
+    target_link_libraries(${EXTENSION_NAME} ntdll userenv bcrypt)
+    target_link_libraries(${LOADABLE_EXTENSION_NAME} ntdll userenv bcrypt)
 endif()
 
 # Force C++17 (DuckDB defaults to C++11; std::bitset, std::sqrt overloads,
