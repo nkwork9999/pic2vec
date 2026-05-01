@@ -101,7 +101,7 @@ query I
 SELECT abs(pic_similarity(
     [1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT],
     [4.0::FLOAT, 5.0::FLOAT, 6.0::FLOAT]
-) - array_cosine_pic_similarity(
+) - array_cosine_similarity(
     [1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT]::FLOAT[3],
     [4.0::FLOAT, 5.0::FLOAT, 6.0::FLOAT]::FLOAT[3]
 )) < 0.0001;
@@ -113,7 +113,7 @@ query I
 SELECT abs(pic_distance(
     [1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT],
     [4.0::FLOAT, 6.0::FLOAT, 8.0::FLOAT]
-) - array_pic_distance(
+) - array_distance(
     [1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT]::FLOAT[3],
     [4.0::FLOAT, 6.0::FLOAT, 8.0::FLOAT]::FLOAT[3]
 )) < 0.0001;
@@ -125,7 +125,7 @@ query I
 SELECT abs(pic_inner_product(
     [1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT],
     [4.0::FLOAT, 5.0::FLOAT, 6.0::FLOAT]
-) - array_pic_inner_product(
+) - array_inner_product(
     [1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT]::FLOAT[3],
     [4.0::FLOAT, 5.0::FLOAT, 6.0::FLOAT]::FLOAT[3]
 )) < 0.0001;
@@ -144,7 +144,7 @@ SELECT pic_dim([1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT, 4.0::FLOAT]::FLOAT[4]::FLOAT
 
 # Built-in array_cosine_similarity via CAST gives the expected value
 query I
-SELECT round(array_cosine_pic_similarity(
+SELECT round(array_cosine_similarity(
     [1.0::FLOAT, 0.0::FLOAT, 0.0::FLOAT]::FLOAT[3],
     [0.5::FLOAT, 0.5::FLOAT, 0.0::FLOAT]::FLOAT[3]
 ), 6);
