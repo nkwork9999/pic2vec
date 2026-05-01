@@ -79,10 +79,11 @@ if(APPLE)
     target_link_libraries(${LOADABLE_EXTENSION_NAME} "-framework CoreFoundation" "-framework Security")
 endif()
 
+# Force C++17 (DuckDB defaults to C++11; std::bitset, std::sqrt overloads,
+# iomanip etc. need C++17). CXX_STANDARD maps to the right per-compiler flag
+# automatically (no explicit -std=c++17 needed; that style trips MSVC).
 set_target_properties(${EXTENSION_NAME} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
 set_target_properties(${LOADABLE_EXTENSION_NAME} PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
-target_compile_options(${EXTENSION_NAME} PRIVATE -std=c++17)
-target_compile_options(${LOADABLE_EXTENSION_NAME} PRIVATE -std=c++17)
 
 install(
   TARGETS ${EXTENSION_NAME}

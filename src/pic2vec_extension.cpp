@@ -13,6 +13,7 @@
 #include "duckdb/main/connection.hpp"
 #include "duckdb/parser/parsed_data/create_scalar_function_info.hpp"
 
+#include <bitset>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -57,6 +58,11 @@ double L2Distance(const std::vector<float> &a, const std::vector<float> &b) {
 		sum += d * d;
 	}
 	return std::sqrt(sum);
+}
+
+// Portable 64-bit popcount (MSVC has no Popcount64).
+static inline int32_t Popcount64(uint64_t x) {
+	return static_cast<int32_t>(std::bitset<64>(x).count());
 }
 
 double InnerProduct(const std::vector<float> &a, const std::vector<float> &b) {
@@ -503,7 +509,7 @@ static void Pic2VecHammingFunction(DataChunk &args, ExpressionState &state, Vect
 			continue;
 		}
 		uint64_t x = (uint64_t)adata[ai] ^ (uint64_t)bdata[bi];
-		rd[i] = __builtin_popcountll(x);
+		rd[i] = Popcount64(x);
 	}
 }
 
@@ -825,7 +831,7 @@ static void Pic2VecEmbedBatchFunction(DataChunk &args, ExpressionState &state, V
 static constexpr int32_t DEFAULT_DEDUPE_HAMMING = 5;
 
 static int32_t HammingU64(uint64_t a, uint64_t b) {
-	return __builtin_popcountll(a ^ b);
+	return Popcount64(a ^ b);
 }
 
 static void Pic2VecDedupePathsFunction(DataChunk &args, ExpressionState &state, Vector &result) {
