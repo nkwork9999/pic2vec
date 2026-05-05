@@ -25,10 +25,28 @@ if [ ! -f "$MODEL_FILE" ]; then
     exit 1
 fi
 
-if ! command -v xxd >/dev/null 2>&1; then
-    echo "Error: xxd not found in PATH (required to embed bytes)" >&2
-    exit 1
-fi
+encode_bytes() {
+    # Emit "0x.., 0x.., ..." lines, 12 bytes per line, comma-separated.
+    # Compatible with xxd -i output style.
+    if command -v xxd >/dev/null 2>&1; then
+        xxd -i < "$1"
+    elif command -v python3 >/dev/null 2>&1; then
+        python3 - "$1" <<'PY'
+import sys
+with open(sys.argv[1], "rb") as f:
+    buf = f.read()
+for i in range(0, len(buf), 12):
+    chunk = buf[i:i + 12]
+    line = "  " + ", ".join(f"0x{b:02x}" for b in chunk)
+    if i + 12 < len(buf):
+        line += ","
+    sys.stdout.write(line + "\n")
+PY
+    else
+        echo "Error: neither xxd nor python3 found in PATH (one is required to embed bytes)" >&2
+        return 1
+    fi
+}
 
 OUT_DIR="$(dirname "$OUT")"
 mkdir -p "$OUT_DIR"
@@ -57,7 +75,7 @@ echo "Embedding $MODEL_FILE ($SIZE bytes) -> $OUT"
     echo "namespace duckdb {"
     echo ""
     echo "const uint8_t EUPE_TINY_MODEL_DATA[] = {"
-    xxd -i < "$MODEL_FILE"
+    encode_bytes "$MODEL_FILE"
     echo "};"
     echo ""
     echo "const size_t EUPE_TINY_MODEL_SIZE = $SIZE;"
