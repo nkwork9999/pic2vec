@@ -1,30 +1,50 @@
 #!/usr/bin/env bash
-# Embed an ONNX file as a C++ byte array into src/embedded/tiny_model_data.cpp.
+# Embed an ONNX file as a C++ byte array.
 #
 # Usage:
-#   ./scripts/embed_tiny_model.sh path/to/eupe_vit_t16_fp16.onnx
+#   ./scripts/embed_tiny_model.sh <input.onnx> <output.cpp>
 #
-# Produces src/embedded/tiny_model_data.cpp which is compiled into the extension.
+# Writes a self-contained .cpp defining EUPE_TINY_MODEL_DATA / EUPE_TINY_MODEL_SIZE
+# to <output.cpp>. The output path may live outside the source tree (the build
+# directory is the supported location); parent directories are created as needed.
+#
+# Exits non-zero on any failure (missing input, unwritable output, empty result).
 
 set -euo pipefail
 
-if [ "$#" -ne 1 ]; then
-    echo "Usage: $0 <onnx-model-file>" >&2
+if [ "$#" -ne 2 ]; then
+    echo "Usage: $0 <input.onnx> <output.cpp>" >&2
     exit 1
 fi
 
 MODEL_FILE="$1"
+OUT="$2"
 
 if [ ! -f "$MODEL_FILE" ]; then
     echo "Error: model file not found: $MODEL_FILE" >&2
     exit 1
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJ_DIR="$(dirname "$SCRIPT_DIR")"
-OUT="$PROJ_DIR/src/embedded/tiny_model_data.cpp"
+if ! command -v xxd >/dev/null 2>&1; then
+    echo "Error: xxd not found in PATH (required to embed bytes)" >&2
+    exit 1
+fi
+
+OUT_DIR="$(dirname "$OUT")"
+mkdir -p "$OUT_DIR"
+
+if ! : > "$OUT.tmp"; then
+    echo "Error: cannot write to $OUT.tmp (parent dir not writable?)" >&2
+    exit 1
+fi
 
 SIZE=$(wc -c < "$MODEL_FILE" | tr -d ' ')
+if [ "$SIZE" -le 0 ]; then
+    echo "Error: model file is empty: $MODEL_FILE" >&2
+    rm -f "$OUT.tmp"
+    exit 1
+fi
+
 echo "Embedding $MODEL_FILE ($SIZE bytes) -> $OUT"
 
 {
@@ -37,13 +57,20 @@ echo "Embedding $MODEL_FILE ($SIZE bytes) -> $OUT"
     echo "namespace duckdb {"
     echo ""
     echo "const uint8_t EUPE_TINY_MODEL_DATA[] = {"
-    # xxd -i emits `unsigned char name[] = { ... };` - we slice out just the braces
     xxd -i < "$MODEL_FILE"
     echo "};"
     echo ""
     echo "const size_t EUPE_TINY_MODEL_SIZE = $SIZE;"
     echo ""
     echo "} // namespace duckdb"
-} > "$OUT"
+} > "$OUT.tmp"
 
-echo "Done. Now rebuild the extension: make release"
+OUT_SIZE=$(wc -c < "$OUT.tmp" | tr -d ' ')
+if [ "$OUT_SIZE" -lt "$SIZE" ]; then
+    echo "Error: generated $OUT.tmp is smaller ($OUT_SIZE bytes) than input ($SIZE bytes); aborting" >&2
+    rm -f "$OUT.tmp"
+    exit 1
+fi
+
+mv "$OUT.tmp" "$OUT"
+echo "Done: $OUT ($OUT_SIZE bytes)"
