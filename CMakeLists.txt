@@ -29,18 +29,25 @@ corrosion_import_crate(
 # Bundled tiny model embedding
 #
 # Single source of truth: assets/eupe_vit_t16_fp16.onnx (committed, ~22MB).
-# scripts/embed_tiny_model.sh converts it to a C++ byte array under the build
-# tree (${CMAKE_CURRENT_BINARY_DIR}/generated/tiny_model_data.cpp, ~131MB).
-# Nothing is written into the source tree, so no .gitignore juggling is needed.
+# cmake/embed_model.cmake (run via `cmake -P`) converts it to a C++ byte array
+# under the build tree (${CMAKE_CURRENT_BINARY_DIR}/generated/tiny_model_data.cpp,
+# ~133MB). Nothing is written into the source tree, so no .gitignore juggling
+# is needed.
 #
-# If the .onnx is missing or the embed script fails for any reason, the build
+# We use cmake -P rather than a bash or python script because every duckdb
+# community-extensions builder image runs CMake by definition, but external
+# tools vary: the linux_arm64 image has no xxd, the windows_amd64_mingw image
+# has a WSL bash.exe stub that intercepts plain `bash` invocations, etc.
+#
+# If the .onnx is missing or the embed step fails for any reason, the build
 # is aborted with FATAL_ERROR. There is intentionally no stub fallback: a
-# silently-empty model produced a binary that loaded but crashed at first
-# pic_embed() call, masking CI breakage on community-extensions.duckdb.org.
+# silently-empty model previously produced a binary that loaded but crashed
+# at first pic_embed() call, masking CI breakage on
+# community-extensions.duckdb.org.
 # ---------------------------------------------------------------------------
-set(_PIC2VEC_TINY_ONNX   "${CMAKE_CURRENT_SOURCE_DIR}/assets/eupe_vit_t16_fp16.onnx")
-set(_PIC2VEC_EMBED_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/scripts/embed_tiny_model.sh")
-set(_PIC2VEC_TINY_DATA   "${CMAKE_CURRENT_BINARY_DIR}/generated/tiny_model_data.cpp")
+set(_PIC2VEC_TINY_ONNX    "${CMAKE_CURRENT_SOURCE_DIR}/assets/eupe_vit_t16_fp16.onnx")
+set(_PIC2VEC_EMBED_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed_model.cmake")
+set(_PIC2VEC_TINY_DATA    "${CMAKE_CURRENT_BINARY_DIR}/generated/tiny_model_data.cpp")
 
 if(NOT EXISTS "${_PIC2VEC_TINY_ONNX}")
     message(FATAL_ERROR
@@ -55,11 +62,14 @@ endif()
 
 # Generate at configure time so that downstream `add_library` / source listing
 # sees a real file (CMake doesn't auto-create OUTPUTs of add_custom_command at
-# configure time). Re-runs whenever the .onnx or the script changes via the
-# add_custom_command rule below.
+# configure time). The add_custom_command rule below re-runs the embed when
+# the .onnx or the script changes.
 message(STATUS "pic2vec: embedding bundled model from ${_PIC2VEC_TINY_ONNX}")
 execute_process(
-    COMMAND bash "${_PIC2VEC_EMBED_SCRIPT}" "${_PIC2VEC_TINY_ONNX}" "${_PIC2VEC_TINY_DATA}"
+    COMMAND "${CMAKE_COMMAND}"
+            "-DIN=${_PIC2VEC_TINY_ONNX}"
+            "-DOUT=${_PIC2VEC_TINY_DATA}"
+            -P "${_PIC2VEC_EMBED_SCRIPT}"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     RESULT_VARIABLE _PIC2VEC_EMBED_RC
     OUTPUT_VARIABLE _PIC2VEC_EMBED_OUT
@@ -67,13 +77,13 @@ execute_process(
 )
 if(NOT _PIC2VEC_EMBED_RC EQUAL 0)
     message(FATAL_ERROR
-        "pic2vec: embed_tiny_model.sh failed (rc=${_PIC2VEC_EMBED_RC}).\n"
+        "pic2vec: embed_model.cmake failed (rc=${_PIC2VEC_EMBED_RC}).\n"
         "stdout: ${_PIC2VEC_EMBED_OUT}\n"
         "stderr: ${_PIC2VEC_EMBED_ERR}")
 endif()
 if(NOT EXISTS "${_PIC2VEC_TINY_DATA}")
     message(FATAL_ERROR
-        "pic2vec: embed_tiny_model.sh returned 0 but did not produce ${_PIC2VEC_TINY_DATA}.\n"
+        "pic2vec: embed_model.cmake returned 0 but did not produce ${_PIC2VEC_TINY_DATA}.\n"
         "stdout: ${_PIC2VEC_EMBED_OUT}\n"
         "stderr: ${_PIC2VEC_EMBED_ERR}")
 endif()
@@ -83,7 +93,10 @@ message(STATUS "pic2vec: bundled model embedded at ${_PIC2VEC_TINY_DATA}")
 # updated model triggers a recompile of just tiny_model_data.cpp.
 add_custom_command(
     OUTPUT  "${_PIC2VEC_TINY_DATA}"
-    COMMAND bash "${_PIC2VEC_EMBED_SCRIPT}" "${_PIC2VEC_TINY_ONNX}" "${_PIC2VEC_TINY_DATA}"
+    COMMAND "${CMAKE_COMMAND}"
+            "-DIN=${_PIC2VEC_TINY_ONNX}"
+            "-DOUT=${_PIC2VEC_TINY_DATA}"
+            -P "${_PIC2VEC_EMBED_SCRIPT}"
     DEPENDS "${_PIC2VEC_TINY_ONNX}" "${_PIC2VEC_EMBED_SCRIPT}"
     COMMENT "pic2vec: re-embedding bundled EUPE ViT-T model"
     VERBATIM
