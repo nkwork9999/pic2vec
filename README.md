@@ -86,6 +86,7 @@ FROM (VALUES ('a.jpg', 'b.jpg'), ('c.jpg', 'd.jpg')) t(a, b);
 ### Pattern B: HNSW + vss (large datasets, fast NN search)
 
 CAST the embedding to `FLOAT[N]` to enable HNSW indexing.
+See `examples/vss_image_search.sql` for a copy/paste-ready template.
 
 ```sql
 INSTALL vss; LOAD vss;

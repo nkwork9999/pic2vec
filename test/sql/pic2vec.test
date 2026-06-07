@@ -160,3 +160,43 @@ SELECT pic_dim([1.0::FLOAT, 2.0::FLOAT]) AS d2,
        pic_dim([1.0::FLOAT, 2.0::FLOAT, 3.0::FLOAT, 4.0::FLOAT]) AS d4;
 ----
 2	3	4
+
+# ============================================
+# Image IO / perceptual hash: no ONNX model required
+# ============================================
+
+query IIIT
+SELECT (info).width::INTEGER,
+       (info).height::INTEGER,
+       CASE WHEN (info).channels >= 3 THEN 1 ELSE 0 END,
+       (info).format
+FROM (
+    SELECT pic_image_info('duckdb/logo/DuckDB_Logo-stacked.png') AS info
+);
+----
+770	592	1	png
+
+query I
+SELECT pic_hamming(
+    pic_phash('duckdb/logo/DuckDB_Logo-stacked.png'),
+    pic_phash('duckdb/logo/DuckDB_Logo-stacked.png')
+);
+----
+0
+
+query I
+SELECT CASE
+       WHEN pic_dedupe('duckdb/logo/DuckDB_Logo-stacked.png',
+                       'duckdb/logo/DuckDB_Logo-stacked.png')
+       THEN 1 ELSE 0 END;
+----
+1
+
+query I
+SELECT CASE
+       WHEN pic_match([1.0::FLOAT, 0.0::FLOAT],
+                      [0.9::FLOAT, 0.1::FLOAT],
+                      0.9::DOUBLE)
+       THEN 1 ELSE 0 END;
+----
+1
