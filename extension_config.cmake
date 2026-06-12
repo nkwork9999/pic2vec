@@ -3,6 +3,8 @@
 # DuckDB 1.5.x defaults core targets to C++11. MSVC 19.51 needs C++17 for
 # DuckDB's vendored fmt checked-iterator path.
 if(MSVC)
+    set(CMAKE_CXX_STANDARD 17)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
     set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ standard to enforce" FORCE)
     set(CMAKE_CXX_STANDARD_REQUIRED ON CACHE BOOL "Require selected C++ standard" FORCE)
 endif()
